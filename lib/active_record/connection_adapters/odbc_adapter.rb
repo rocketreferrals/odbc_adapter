@@ -117,26 +117,31 @@ module ActiveRecord
         true
       end
 
+      # ODBC adapter does not support the returning clause
+      def supports_insert_returning?
+        false
+      end
+
       # CONNECTION MANAGEMENT ====================================
 
       # Checks whether the connection to the database is still active. This
       # includes checking whether the database is actually capable of
       # responding, i.e. whether the connection isn't stale.
       def active?
-        @connection.connected?
+        raw_connection.connected?
       end
 
       # Disconnects from the database if already connected, and establishes a
       # new connection with the database.
       def reconnect!
         disconnect!
-        @connection =
+        raw_connection =
           if @config[:driver]
             ODBC::Database.new.drvconnect(@config[:driver])
           else
             ODBC.connect(@config[:dsn], @config[:username], @config[:password])
           end
-        configure_time_options(@connection)
+        configure_time_options(raw_connection
         super
       end
       alias reset! reconnect!
@@ -144,14 +149,22 @@ module ActiveRecord
       # Disconnects from the database if already connected. Otherwise, this
       # method does nothing.
       def disconnect!
-        @connection.disconnect if @connection.connected?
+        raw_connection.disconnect if raw_connection.connected?
       end
 
       # Build a new column object from the given options. Effectively the same
       # as super except that it also passes in the native type.
       # rubocop:disable Metrics/ParameterLists
-      def new_column(name, default, sql_type_metadata, null, table_name, default_function = nil, collation = nil, native_type = nil)
-        ::ODBCAdapter::Column.new(name, default, sql_type_metadata, null, table_name, default_function, collation, native_type)
+      def new_column(name, default, sql_type_metadata, null, default_function = nil, collation: nil, native_type: nil)
+        ::ODBCAdapter::Column.new(
+          name,
+          default,
+          sql_type_metadata,
+          null,
+          default_function,
+          collation: collation,
+          native_type: native_type,
+          )
       end
       # rubocop:enable Metrics/ParameterLists
 
