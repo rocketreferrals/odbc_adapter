@@ -141,7 +141,7 @@ module ActiveRecord
           else
             ODBC.connect(@config[:dsn], @config[:username], @config[:password])
           end
-        configure_time_options(raw_connection
+        configure_time_options(raw_connection)
         super
       end
       alias reset! reconnect!
