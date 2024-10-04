@@ -104,6 +104,7 @@ module ActiveRecord
         configure_time_options(connection)
         super(connection, logger, config)
         @database_metadata = database_metadata
+        @raw_connection = connection
       end
 
       # Returns the human-readable name of the adapter.
@@ -128,20 +129,20 @@ module ActiveRecord
       # includes checking whether the database is actually capable of
       # responding, i.e. whether the connection isn't stale.
       def active?
-        raw_connection.connected?
+        @raw_connection.connected?
       end
 
       # Disconnects from the database if already connected, and establishes a
       # new connection with the database.
       def reconnect!
         disconnect!
-        raw_connection =
+        @raw_connection =
           if @config[:driver]
             ODBC::Database.new.drvconnect(@config[:driver])
           else
             ODBC.connect(@config[:dsn], @config[:username], @config[:password])
           end
-        configure_time_options(raw_connection)
+        configure_time_options(@raw_connection)
         super
       end
       alias reset! reconnect!
@@ -149,7 +150,7 @@ module ActiveRecord
       # Disconnects from the database if already connected. Otherwise, this
       # method does nothing.
       def disconnect!
-        raw_connection.disconnect if raw_connection.connected?
+        @raw_connection.disconnect if @raw_connection.connected?
       end
 
       # Build a new column object from the given options. Effectively the same
