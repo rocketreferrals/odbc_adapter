@@ -16,72 +16,6 @@ require 'odbc_adapter/registry'
 require 'odbc_adapter/version'
 
 module ActiveRecord
-  class Base
-    class << self
-      # Build a new ODBC connection with the given configuration.
-      def odbc_connection(config)
-        config = config.symbolize_keys
-
-        connection, config =
-          if config.key?(:dsn)
-            odbc_dsn_connection(config)
-          elsif config.key?(:conn_str)
-            odbc_conn_str_connection(config)
-          else
-            raise ArgumentError, 'No data source name (:dsn) or connection string (:conn_str) specified.'
-          end
-
-        database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection)
-        database_metadata.adapter_class.new(connection, logger, config, database_metadata)
-      end
-
-      private
-
-      # Connect using a predefined DSN.
-      def odbc_dsn_connection(config)
-        username   = config[:username] ? config[:username].to_s : nil
-        password   = config[:password] ? config[:password].to_s : nil
-
-        # If it includes only the DSN + credentials
-        if (config.keys - %i[adapter dsn username password]).empty?
-          connection = ODBC.connect(config[:dsn], username, password)
-          config = config.merge(username: username, password: password)
-        # Support additional overrides, e.g. host: db.example.com
-        else
-          driver_attrs = config.dup
-                               .delete_if { |k, _| %i[adapter username password].include?(k) }
-                               .merge(UID: username, PWD: password)
-
-          driver, connection = obdc_driver_connection(driver_attrs)
-          config = config.merge(driver: driver)
-        end
-
-        [connection, config]
-      end
-
-      # Connect using ODBC connection string
-      # Supports DSN-based or DSN-less connections
-      # e.g. "DSN=virt5;UID=rails;PWD=rails"
-      #      "DRIVER={OpenLink Virtuoso};HOST=carlmbp;UID=rails;PWD=rails"
-      def odbc_conn_str_connection(config)
-        driver_attrs = config[:conn_str].split(';').map { |option| option.split('=', 2) }.to_h
-        driver, connection = obdc_driver_connection(driver_attrs)
-
-        [connection, config.merge(driver: driver)]
-      end
-
-      def obdc_driver_connection(driver_attrs)
-        driver = ODBC::Driver.new
-        driver.name = 'odbc'
-        driver.attrs = driver_attrs.stringify_keys
-
-        connection = ODBC::Database.new.drvconnect(driver)
-
-        [driver, connection]
-      end
-    end
-  end
-
   module ConnectionAdapters
     class ODBCAdapter < AbstractAdapter
       include ::ODBCAdapter::DatabaseLimits
@@ -100,10 +34,24 @@ module ActiveRecord
       # when a connection is first established.
       attr_reader :database_metadata
 
-      def initialize(connection, logger, config, database_metadata)
-        configure_time_options(connection)
-        super(connection, logger, config)
-        @database_metadata = database_metadata
+      def initialize(config, *)
+
+        # get connection and modify config
+        connection, config =
+          if config.key?(:dsn)
+            odbc_dsn_connection(config)
+          elsif config.key?(:conn_str)
+            odbc_conn_str_connection(config)
+          else
+            raise ArgumentError, 'No data source name (:dsn) or connection string (:conn_str) specified.'
+          end
+
+        # perform base operations
+        super
+
+        # additional odbc configuration
+        @database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection)
+        # make raw_connection available for certain operations
         @raw_connection = connection
       end
 
@@ -142,7 +90,6 @@ module ActiveRecord
           else
             ODBC.connect(@config[:dsn], @config[:username], @config[:password])
           end
-        configure_time_options(@raw_connection)
         super
       end
       alias reset! reconnect!
@@ -220,6 +167,49 @@ module ActiveRecord
 
       private
 
+      # Connect using a predefined DSN.
+      def odbc_dsn_connection(config)
+        username   = config[:username] ? config[:username].to_s : nil
+        password   = config[:password] ? config[:password].to_s : nil
+
+        # If it includes only the DSN + credentials
+        if (config.keys - %i[adapter dsn username password]).empty?
+          connection = ODBC.connect(config[:dsn], username, password)
+          config = config.merge(username: username, password: password)
+          # Support additional overrides, e.g. host: db.example.com
+        else
+          driver_attrs = config.dup
+                               .delete_if { |k, _| %i[adapter username password].include?(k) }
+                               .merge(UID: username, PWD: password)
+
+          driver, connection = obdc_driver_connection(driver_attrs)
+          config = config.merge(driver: driver)
+        end
+
+        [connection, config]
+      end
+
+      # Connect using ODBC connection string
+      # Supports DSN-based or DSN-less connections
+      # e.g. "DSN=virt5;UID=rails;PWD=rails"
+      #      "DRIVER={OpenLink Virtuoso};HOST=carlmbp;UID=rails;PWD=rails"
+      def odbc_conn_str_connection(config)
+        driver_attrs = config[:conn_str].split(';').map { |option| option.split('=', 2) }.to_h
+        driver, connection = obdc_driver_connection(driver_attrs)
+
+        [connection, config.merge(driver: driver)]
+      end
+
+      def obdc_driver_connection(driver_attrs)
+        driver = ODBC::Driver.new
+        driver.name = 'odbc'
+        driver.attrs = driver_attrs.stringify_keys
+
+        connection = ODBC::Database.new.drvconnect(driver)
+
+        [driver, connection]
+      end
+
       # Can't use the built-in ActiveRecord map#alias_type because it doesn't
       # work with non-string keys, and in our case the keys are (almost) all
       # numeric
@@ -227,11 +217,6 @@ module ActiveRecord
         map.register_type(new_type) do |_, *args|
           map.lookup(old_type, *args)
         end
-      end
-
-      # Ensure ODBC is mapping time-based fields to native ruby objects
-      def configure_time_options(connection)
-        connection.use_time = true
       end
     end
   end
