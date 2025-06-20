@@ -179,7 +179,7 @@ module ActiveRecord
           # Support additional overrides, e.g. host: db.example.com
         else
           driver_attrs = config.dup
-                               .delete_if { |k, _| %i[adapter username password].include?(k) }
+                               .delete_if { |k, _| %i[adapter database_tasks username password].include?(k) }
                                .merge(UID: username, PWD: password)
 
           driver, connection = obdc_driver_connection(driver_attrs)
