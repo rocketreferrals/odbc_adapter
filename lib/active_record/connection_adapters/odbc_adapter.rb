@@ -32,7 +32,7 @@ module ActiveRecord
           end
 
         database_metadata = ::ODBCAdapter::DatabaseMetadata.new(connection)
-        database_metadata.adapter_class.new(connection, logger, config, database_metadata)
+        [connection, logger, config, database_metadata]
       end
 
       private
@@ -41,12 +41,16 @@ module ActiveRecord
       def odbc_dsn_connection(config)
         username   = config[:username] ? config[:username].to_s : nil
         password   = config[:password] ? config[:password].to_s : nil
+        # odbc driver doesn't like boolean keys
+        if config.key?(:database_tasks)
+          database_tasks = config.delete(:database_tasks)
+        end
 
         # If it includes only the DSN + credentials
         if (config.keys - %i[adapter dsn username password]).empty?
           connection = ODBC.connect(config[:dsn], username, password)
           config = config.merge(username: username, password: password)
-        # Support additional overrides, e.g. host: db.example.com
+          # Support additional overrides, e.g. host: db.example.com
         else
           driver_attrs = config.dup
                                .delete_if { |k, _| %i[adapter username password].include?(k) }
@@ -55,6 +59,8 @@ module ActiveRecord
           driver, connection = obdc_driver_connection(driver_attrs)
           config = config.merge(driver: driver)
         end
+
+        config[:database_tasks] = database_tasks unless database_tasks.nil?
 
         [connection, config]
       end
@@ -100,7 +106,8 @@ module ActiveRecord
       # when a connection is first established.
       attr_reader :database_metadata
 
-      def initialize(connection, logger, config, database_metadata)
+      def initialize(conf, *)
+        connection, logger, config, database_metadata = ActiveRecord::Base.odbc_connection(conf)
         configure_time_options(connection)
         super(connection, logger, config)
         @database_metadata = database_metadata
