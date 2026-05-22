@@ -54,7 +54,11 @@ module ActiveRecord
         else
           driver_attrs = config.dup
                                .delete_if { |k, _| %i[adapter username password].include?(k) }
-                               .merge(UID: username, PWD: password)
+                               .merge(UID: username)
+
+          # password is not required, key-pair etc are other valid authentication methods
+          # password = nil breaks driver initialization
+          driver_attrs.merge!(PWD: password) if password.present?
 
           driver, connection = obdc_driver_connection(driver_attrs)
           config = config.merge(driver: driver)
